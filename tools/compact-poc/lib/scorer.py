@@ -1,7 +1,8 @@
-"""Qwen3-Reranker-0.6B scoring for system turns.
+"""Qwen3-Embedding-0.6B scoring for system turns.
 
-Uses the reranker to score how relevant each system turn is to the current
-task direction (derived from recent user messages).
+Embeds a query (recent user messages) and all system turn documents,
+then ranks by cosine similarity. Much faster than the reranker variant
+since all documents can be encoded in a single batched forward pass.
 """
 
 from __future__ import annotations
@@ -10,31 +11,26 @@ import random
 from dataclasses import dataclass
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch.nn.functional as F
+from torch import Tensor
+from transformers import AutoModel, AutoTokenizer
 
 from .parser import Turn, extract_text
 
-MODEL_ID = "Qwen/Qwen3-Reranker-0.6B"
-MAX_RERANKER_TOKENS = 8192
+MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
+MAX_TOKENS = 8192
+# Shorter context for batched encoding — keeps GPU memory bounded.
+# 512 tokens is enough to capture the gist of a turn for similarity scoring.
+ENCODE_MAX_LENGTH = 512
 
-INSTRUCTION = (
-    "Given an AI coding assistant conversation, determine if this assistant response "
-    "contains information needed to continue the task. Prioritize: code changes, "
-    "decisions, errors, file paths, architectural context, unfinished work."
+QUERY_INSTRUCTION = (
+    "Find assistant responses from an AI coding conversation that contain "
+    "information needed to continue the current task: code changes, decisions, "
+    "errors, file paths, architectural context, or unfinished work."
 )
 
-PREFIX = (
-    "<|im_start|>system\n"
-    "Judge whether the Document meets the requirements based on the Query "
-    "and the Instruct provided. Note that the answer can only be \"yes\" or \"no\"."
-    "<|im_end|>\n"
-    "<|im_start|>user\n"
-)
-
-SUFFIX = (
-    "<|im_end|>\n"
-    "<|im_start|>assistant\n"
-    "<think>\n\n</think>\n\n"
+DOC_INSTRUCTION = (
+    "AI coding assistant response from a conversation history"
 )
 
 
@@ -57,96 +53,98 @@ def build_query(user_turns: list[Turn], max_chars: int = 4000) -> str:
     return query
 
 
+def _last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
+    """Pool the last non-padding token's hidden state as the embedding."""
+    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
+    if left_padding:
+        return last_hidden_states[:, -1]
+    sequence_lengths = attention_mask.sum(dim=1) - 1
+    batch_size = last_hidden_states.shape[0]
+    return last_hidden_states[
+        torch.arange(batch_size, device=last_hidden_states.device),
+        sequence_lengths,
+    ]
+
+
+def _format_instruct(instruction: str, text: str) -> str:
+    """Wrap text with Qwen3 instruct tags."""
+    return f"Instruct: {instruction}\nQuery: {text}"
+
+
 class Scorer:
-    """Scores system turns using Qwen3-Reranker-0.6B."""
+    """Scores system turns using Qwen3-Embedding-0.6B cosine similarity."""
 
     def __init__(self, device: str = "cpu"):
         self.device = device
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, padding_side="left")
         dtype = torch.float32 if device == "cpu" else torch.float16
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = AutoModel.from_pretrained(
             MODEL_ID,
             dtype=dtype,
         ).to(device).eval()
-        self.yes_id = self.tokenizer.convert_tokens_to_ids("yes")
-        self.no_id = self.tokenizer.convert_tokens_to_ids("no")
 
-    def _format_input(self, query: str, document: str) -> str:
-        """Format a single query-document pair for the reranker."""
-        return (
-            f"{PREFIX}"
-            f"<Instruct>: {INSTRUCTION}\n"
-            f"<Query>: {query}\n"
-            f"<Document>: {document}"
-            f"{SUFFIX}"
-        )
-
-    def _truncate_document(self, document: str, query: str) -> str:
-        """Truncate document to fit within the reranker's context window.
-
-        Leaves room for the query, instruction, and template tokens.
-        """
-        # Estimate overhead tokens from template + query + instruction
-        overhead = self._format_input(query, "")
-        overhead_tokens = len(self.tokenizer.encode(overhead, add_special_tokens=False))
-        max_doc_tokens = MAX_RERANKER_TOKENS - overhead_tokens - 64  # safety margin
-
-        if max_doc_tokens <= 0:
-            return document[:500]
-
-        doc_tokens = self.tokenizer.encode(document, add_special_tokens=False)
-        if len(doc_tokens) <= max_doc_tokens:
-            return document
-
-        # Truncate and decode back
-        truncated = doc_tokens[:max_doc_tokens]
-        return self.tokenizer.decode(truncated, skip_special_tokens=True)
-
-    def _score_one(self, text: str) -> float:
-        """Score a single formatted input and return P(yes)."""
+    def _encode(self, texts: list[str], max_length: int = ENCODE_MAX_LENGTH) -> Tensor:
+        """Encode texts into normalized embeddings."""
         encoded = self.tokenizer(
-            text,
+            texts,
+            padding=True,
             truncation=True,
-            max_length=MAX_RERANKER_TOKENS,
+            max_length=max_length,
             return_tensors="pt",
         ).to(self.device)
 
         with torch.no_grad():
             outputs = self.model(**encoded)
-            # Last token logits only
-            logits = outputs.logits[0, -1, :]
-            yes_no = logits[[self.no_id, self.yes_id]]
-            probs = torch.softmax(yes_no, dim=0)
-            return probs[1].item()  # P(yes)
+            embeddings = _last_token_pool(
+                outputs.last_hidden_state, encoded["attention_mask"]
+            )
+
+        return F.normalize(embeddings, p=2, dim=1)
 
     def score_turns(
         self,
         system_turns: list[Turn],
         query: str,
         token_counts: dict[int, int],
-        batch_size: int = 1,  # unused, kept for API compat
+        batch_size: int = 16,
     ) -> list[ScoredTurn]:
-        """Score a list of system turns against the query.
+        """Score system turns by cosine similarity to the query embedding.
 
-        Processes one turn at a time to stay within GPU memory.
-        Returns ScoredTurn objects with scores in [0, 1].
+        Encodes query with instruction, documents with doc instruction,
+        then computes cosine similarity.
         """
-        results: list[ScoredTurn] = []
+        # Encode query with instruction
+        query_text = _format_instruct(QUERY_INSTRUCTION, query)
+        query_emb = self._encode([query_text])  # (1, dim)
 
-        for i, turn in enumerate(system_turns):
-            doc = extract_text(turn)
-            doc = self._truncate_document(doc, query)
-            text = self._format_input(query, doc)
-            score = self._score_one(text)
+        # Encode documents in batches
+        doc_embeddings: list[Tensor] = []
+        for batch_start in range(0, len(system_turns), batch_size):
+            batch = system_turns[batch_start : batch_start + batch_size]
+            doc_texts = [
+                _format_instruct(DOC_INSTRUCTION, extract_text(t))
+                for t in batch
+            ]
+            embs = self._encode(doc_texts)
+            doc_embeddings.append(embs)
 
+            done = min(batch_start + batch_size, len(system_turns))
+            print(f"  encoded {done}/{len(system_turns)}", flush=True)
+
+        all_doc_emb = torch.cat(doc_embeddings, dim=0)  # (N, dim)
+
+        # Cosine similarities (already normalized, so just dot product)
+        sims = (query_emb @ all_doc_emb.T).squeeze(0).cpu().tolist()
+
+        # Convert to 0-1 range (cosine sim is in [-1, 1])
+        results = []
+        for turn, sim in zip(system_turns, sims):
+            score = (sim + 1.0) / 2.0  # map [-1,1] -> [0,1]
             results.append(ScoredTurn(
                 turn=turn,
                 score=score,
                 tokens=token_counts.get(turn.index, 0),
             ))
-
-            if (i + 1) % 10 == 0:
-                print(f"  scored {i + 1}/{len(system_turns)}", flush=True)
 
         return results
 
