@@ -10,10 +10,15 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+import logging
+
 import torch
 import torch.nn.functional as F
 from torch import Tensor
 from transformers import AutoModel, AutoTokenizer
+
+# Suppress noisy tqdm/progress bars from transformers model loading
+logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
 
 from .parser import Turn, extract_text
 
