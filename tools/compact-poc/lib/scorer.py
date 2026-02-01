@@ -60,12 +60,13 @@ def build_query(user_turns: list[Turn], max_chars: int = 4000) -> str:
 class Scorer:
     """Scores system turns using Qwen3-Reranker-0.6B."""
 
-    def __init__(self, device: str = "cuda:0"):
+    def __init__(self, device: str = "cpu"):
         self.device = device
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, padding_side="left")
+        dtype = torch.float32 if device == "cpu" else torch.float16
         self.model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
-            dtype=torch.float16,
+            dtype=dtype,
         ).to(device).eval()
         self.yes_id = self.tokenizer.convert_tokens_to_ids("yes")
         self.no_id = self.tokenizer.convert_tokens_to_ids("no")

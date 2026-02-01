@@ -33,7 +33,7 @@ def main() -> int:
     parser.add_argument("jsonl_file", type=Path, help="Path to the JSONL conversation file")
     parser.add_argument("--budget", type=int, default=80_000, help="Target token budget (default: 80000)")
     parser.add_argument("--short-threshold", type=int, default=300, help="System turns <= this many tokens are always kept (default: 300)")
-    parser.add_argument("--device", type=str, default="cuda:0", help="PyTorch device (default: cuda:0)")
+    parser.add_argument("--device", type=str, default="cpu", help="PyTorch device (default: cpu)")
     parser.add_argument("--output", type=Path, default=None, help="Write compacted JSONL to this file")
     parser.add_argument("--scores-file", type=Path, default=None, help="Write scores CSV to this file")
     parser.add_argument("--batch-size", type=int, default=8, help="Reranker batch size (default: 8)")
