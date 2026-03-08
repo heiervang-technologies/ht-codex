@@ -799,6 +799,12 @@
           "description": "Whether this provider supports the Responses API WebSocket transport.",
           "type": "boolean"
         },
+        "developer_role_name": {
+          "description": "Override the role name used for developer-context messages. When set, every message with role \"developer\" will be rewritten to this value before sending to the provider. Useful for providers that expect \"system\" instead of \"developer\".",
+          "type": "string",
+          "nullable": true,
+          "default": null
+        },
         "wire_api": {
           "allOf": [
             {
