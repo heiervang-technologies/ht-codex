@@ -66,6 +66,7 @@ mod ascii_animation;
 #[cfg(all(not(target_os = "linux"), feature = "voice-input"))]
 mod audio_device;
 mod bottom_pane;
+mod brand;
 mod chatwidget;
 mod cli;
 mod clipboard_paste;
