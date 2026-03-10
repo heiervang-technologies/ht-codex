@@ -111,6 +111,18 @@ pub struct ModelProviderInfo {
     /// Whether this provider supports the Responses API WebSocket transport.
     #[serde(default)]
     pub supports_websockets: bool,
+
+    /// Override the role name used for developer-context messages in the
+    /// `input` array.  When set, every `ResponseItem::Message` whose role is
+    /// `"developer"` will be rewritten to this value before the request is
+    /// sent to the provider.
+    ///
+    /// This is useful for providers that do not recognise the OpenAI
+    /// `"developer"` role and expect `"system"` instead (e.g. many
+    /// OpenAI-compatible third-party or OSS providers).
+    ///
+    /// Default (`None`) keeps the role as `"developer"`.
+    pub developer_role_name: Option<String>,
 }
 
 impl ModelProviderInfo {
@@ -253,6 +265,7 @@ impl ModelProviderInfo {
             stream_idle_timeout_ms: None,
             requires_openai_auth: true,
             supports_websockets: true,
+            developer_role_name: None,
         }
     }
 
@@ -326,6 +339,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         stream_idle_timeout_ms: None,
         requires_openai_auth: false,
         supports_websockets: false,
+        developer_role_name: None,
     }
 }
 
@@ -355,6 +369,7 @@ base_url = "http://localhost:11434/v1"
             stream_idle_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: false,
+            developer_role_name: None,
         };
 
         let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();
@@ -386,6 +401,7 @@ query_params = { api-version = "2025-04-01-preview" }
             stream_idle_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: false,
+            developer_role_name: None,
         };
 
         let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();
@@ -420,6 +436,7 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
             stream_idle_timeout_ms: None,
             requires_openai_auth: false,
             supports_websockets: false,
+            developer_role_name: None,
         };
 
         let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();
@@ -437,5 +454,28 @@ wire_api = "chat"
 
         let err = toml::from_str::<ModelProviderInfo>(provider_toml).unwrap_err();
         assert!(err.to_string().contains(CHAT_WIRE_API_REMOVED_ERROR));
+    }
+
+    #[test]
+    fn test_deserialize_developer_role_name() {
+        let provider_toml = r#"
+name = "CustomProvider"
+base_url = "https://example.com/v1"
+developer_role_name = "system"
+        "#;
+
+        let provider: ModelProviderInfo = toml::from_str(provider_toml).unwrap();
+        assert_eq!(provider.developer_role_name, Some("system".to_string()));
+    }
+
+    #[test]
+    fn test_developer_role_name_defaults_to_none() {
+        let provider_toml = r#"
+name = "MinimalProvider"
+base_url = "https://example.com/v1"
+        "#;
+
+        let provider: ModelProviderInfo = toml::from_str(provider_toml).unwrap();
+        assert_eq!(provider.developer_role_name, None);
     }
 }

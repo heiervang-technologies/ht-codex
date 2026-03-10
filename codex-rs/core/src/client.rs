@@ -497,7 +497,19 @@ impl ModelClientSession {
         service_tier: Option<ServiceTier>,
     ) -> Result<ResponsesApiRequest> {
         let instructions = &prompt.base_instructions.text;
-        let input = prompt.get_formatted_input();
+        let mut input = prompt.get_formatted_input();
+
+        // If the provider has a custom developer_role_name, rewrite
+        // "developer" roles in the input to the configured value.
+        if let Some(mapped_role) = &self.client.state.provider.developer_role_name {
+            for item in &mut input {
+                if let ResponseItem::Message { role, .. } = item {
+                    if role == "developer" {
+                        *role = mapped_role.clone();
+                    }
+                }
+            }
+        }
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let default_reasoning_effort = model_info.default_reasoning_level;
         let reasoning = if model_info.supports_reasoning_summaries {
