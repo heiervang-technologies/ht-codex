@@ -48,6 +48,7 @@ struct MarkdownStyles {
 
 impl Default for MarkdownStyles {
     fn default() -> Self {
+        use crate::brand;
         use ratatui::style::Stylize;
 
         Self {
@@ -57,14 +58,14 @@ impl Default for MarkdownStyles {
             h4: Style::new().italic(),
             h5: Style::new().italic(),
             h6: Style::new().italic(),
-            code: Style::new().cyan(),
+            code: Style::new().fg(brand::PRIMARY),
             emphasis: Style::new().italic(),
             strong: Style::new().bold(),
             strikethrough: Style::new().crossed_out(),
-            ordered_list_marker: Style::new().light_blue(),
+            ordered_list_marker: Style::new().fg(brand::SECONDARY),
             unordered_list_marker: Style::new(),
-            link: Style::new().cyan().underlined(),
-            blockquote: Style::new().green(),
+            link: Style::new().fg(brand::PRIMARY).underlined(),
+            blockquote: Style::new().fg(brand::SECONDARY),
         }
     }
 }

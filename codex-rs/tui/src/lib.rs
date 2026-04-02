@@ -97,6 +97,7 @@ mod audio_device {
     }
 }
 mod bottom_pane;
+mod brand;
 mod chatwidget;
 mod cli;
 mod clipboard_paste;

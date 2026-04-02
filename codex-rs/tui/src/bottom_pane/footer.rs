@@ -118,7 +118,9 @@ impl CollaborationModeIndicator {
         let label = self.label(show_cycle_hint);
         match self {
             CollaborationModeIndicator::Plan => Span::from(label).magenta(),
-            CollaborationModeIndicator::PairProgramming => Span::from(label).cyan(),
+            CollaborationModeIndicator::PairProgramming => {
+                Span::from(label).fg(crate::brand::PRIMARY)
+            }
             CollaborationModeIndicator::Execute => Span::from(label).dim(),
         }
     }

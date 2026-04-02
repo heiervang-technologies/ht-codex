@@ -2383,9 +2383,9 @@ impl ChatComposer {
             .map(|(idx, _)| {
                 let label = local_image_label_text(idx + 1);
                 if self.selected_remote_image_index == Some(idx) {
-                    label.cyan().reversed().into()
+                    label.fg(crate::brand::PRIMARY).reversed().into()
                 } else {
-                    label.cyan().into()
+                    label.fg(crate::brand::PRIMARY).into()
                 }
             })
             .collect()
