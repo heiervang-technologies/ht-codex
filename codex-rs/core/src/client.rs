@@ -786,6 +786,18 @@ impl ModelClient {
         if !self.state.provider.info().is_openai() {
             input.iter_mut().for_each(ResponseItem::clear_metadata);
         }
+        // If the provider defines a custom developer_role_name, rewrite
+        // "developer" role messages to the configured value before sending.
+        // Useful for providers that expect "system" instead of "developer".
+        if let Some(mapped_role) = &self.state.provider.info().developer_role_name {
+            for item in &mut input {
+                if let ResponseItem::Message { role, .. } = item {
+                    if role == "developer" {
+                        *role = mapped_role.clone();
+                    }
+                }
+            }
+        }
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
         let include = if reasoning.is_some() {
