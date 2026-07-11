@@ -85,7 +85,15 @@ impl App {
                 self.has_emitted_history_lines = true;
             }
         }
+        self.apply_pet_side_history_padding(&mut display);
         display
+    }
+
+    fn apply_pet_side_history_padding(&self, lines: &mut [HyperlinkLine]) {
+        let columns = usize::from(self.chat_widget.history_left_padding());
+        for line in lines {
+            line.prepend_spaces(columns);
+        }
     }
 
     pub(super) fn insert_history_cell_lines(
@@ -146,7 +154,9 @@ impl App {
 
         if buffer.retained_lines.is_empty() {
             if buffer.render_from_transcript_tail {
-                let width = tui.terminal.last_known_screen_size.width;
+                let width = self
+                    .chat_widget
+                    .history_wrap_width(tui.terminal.last_known_screen_size.width);
                 let reflowed_lines = self.render_transcript_lines_for_reflow(width).lines;
                 if !reflowed_lines.is_empty() {
                     tui.insert_history_hyperlink_lines_with_wrap_policy(
@@ -515,6 +525,7 @@ impl App {
             let trimmed_line_count = reflowed_lines.len() - max_rows;
             reflowed_lines = reflowed_lines.split_off(trimmed_line_count);
         }
+        self.apply_pet_side_history_padding(&mut reflowed_lines);
         self.has_emitted_history_lines = !reflowed_lines.is_empty();
 
         ReflowRenderResult {

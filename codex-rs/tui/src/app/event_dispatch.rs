@@ -495,6 +495,9 @@ impl App {
             AppEvent::PetDisabled => {
                 self.handle_pet_disabled(tui).await;
             }
+            AppEvent::PetSideSelected { side } => {
+                self.handle_pet_side_selected(tui, side).await;
+            }
             AppEvent::PetPreviewRequested { pet_id } => {
                 self.chat_widget.start_pet_picker_preview(pet_id);
             }
