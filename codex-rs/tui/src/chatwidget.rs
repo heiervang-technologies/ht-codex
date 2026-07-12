@@ -632,8 +632,10 @@ pub(crate) struct ChatWidget {
     ambient_pet: Option<crate::pets::AmbientPet>,
     pet_picker_preview_state: crate::pets::PetPickerPreviewState,
     pet_picker_preview_pet: Option<crate::pets::AmbientPet>,
+    pet_picker_preview_animation: String,
     pet_picker_preview_request_id: u64,
     pet_picker_preview_image_visible: std::cell::Cell<bool>,
+    pet_talking_signal: crate::pets::TalkingSignal,
     pet_selection_load_request_id: u64,
     #[cfg(test)]
     pet_image_support_override: Option<crate::pets::PetImageSupport>,
@@ -1136,6 +1138,7 @@ impl ChatWidget {
                 self.bottom_pane
                     .set_context_window(/*percent*/ None, /*used_tokens*/ None);
                 self.token_info = None;
+                self.sync_ambient_pet_semantic_state();
             }
         }
     }
@@ -1145,6 +1148,7 @@ impl ChatWidget {
         let used_tokens = self.context_used_tokens(&info, percent.is_some());
         self.bottom_pane.set_context_window(percent, used_tokens);
         self.token_info = Some(info);
+        self.sync_ambient_pet_semantic_state();
     }
 
     fn context_remaining_percent(&self, info: &TokenUsageInfo) -> Option<i64> {
@@ -1186,11 +1190,15 @@ impl ChatWidget {
     }
 
     pub(crate) fn pre_draw_tick(&mut self) {
+        self.sync_ambient_pet_semantic_state();
         self.update_due_hook_visibility();
         self.schedule_hook_timer_if_needed();
         self.bottom_pane.pre_draw_tick();
         if let Some(pet) = self.ambient_pet.as_ref() {
             pet.schedule_next_frame();
+        }
+        if let Some(pet) = self.pet_picker_preview_pet.as_ref() {
+            pet.schedule_preview_next_frame();
         }
         self.refresh_plan_mode_nudge();
         self.refresh_goal_status_indicator_for_time_tick();

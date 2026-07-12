@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 build = "build.rs"
 
+# clanker-delta: entry-point
+[[bin]]
+name = "clanker"
+path = "src/clanker.rs"
+
 [[bin]]
 name = "codex"
 path = "src/main.rs"
@@ -102,6 +107,7 @@ codex-utils-cargo-bin = { workspace = true }
 insta = { workspace = true }
 predicates = { workspace = true }
 pretty_assertions = { workspace = true }
+semver = { workspace = true }
 sqlx = { workspace = true }
 wiremock = { workspace = true }
 

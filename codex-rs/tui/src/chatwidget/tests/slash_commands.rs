@@ -15,16 +15,23 @@ fn force_tmux_pet_image_unsupported(chat: &mut ChatWidget) {
     ));
 }
 
-fn force_terminal_pet_image_unsupported(chat: &mut ChatWidget) {
-    chat.set_pet_image_support_for_tests(crate::pets::PetImageSupport::Unsupported(
-        crate::pets::PetImageUnsupportedReason::Terminal,
-    ));
-}
-
-fn force_old_iterm2_pet_image_unsupported(chat: &mut ChatWidget) {
-    chat.set_pet_image_support_for_tests(crate::pets::PetImageSupport::Unsupported(
-        crate::pets::PetImageUnsupportedReason::Iterm2TooOld,
-    ));
+fn write_ansi_avatar(chat: &ChatWidget, id: &str) {
+    let avatar_dir = chat.config.codex_home.join("avatars").join(id);
+    std::fs::create_dir_all(&avatar_dir).unwrap();
+    std::fs::write(
+        avatar_dir.join("avatar.json"),
+        format!(
+            r#"{{
+                "displayName": "{id}",
+                "renderMode": "ansi-half-block",
+                "spritesheetPath": "avatar.png"
+            }}"#
+        ),
+    )
+    .unwrap();
+    image::RgbaImage::from_pixel(24, 24, image::Rgba([255, 0, 0, 255]))
+        .save(avatar_dir.join("avatar.png"))
+        .unwrap();
 }
 
 fn fast_tier_command() -> ServiceTierCommand {
@@ -2423,6 +2430,27 @@ async fn slash_pets_opens_picker() {
 
 #[tokio::test]
 #[serial]
+async fn slash_pets_wheel_right_arrow_changes_preview_state() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    force_pet_image_support(&mut chat);
+    chat.config.tui_pet = Some("codex".to_string());
+    chat.dispatch_command(SlashCommand::Pets);
+
+    chat.handle_key_event(KeyEvent::from(KeyCode::Right));
+
+    assert_matches!(
+        rx.try_recv(),
+        Ok(AppEvent::PetPreviewStateChanged { animation_name }) if animation_name == "running"
+    );
+    assert_matches!(
+        rx.try_recv(),
+        Ok(AppEvent::PetPreviewRequested { pet_id }) if pet_id == "codex"
+    );
+    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[tokio::test]
+#[serial]
 async fn slash_pets_with_arg_selects_named_pet() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     force_pet_image_support(&mut chat);
@@ -2436,6 +2464,74 @@ async fn slash_pets_with_arg_selects_named_pet() {
         Ok(AppEvent::PetSelected { pet_id }) if pet_id == "chefito"
     );
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[tokio::test]
+#[serial]
+async fn slash_pets_next_cycles_to_next_pet_in_stable_order() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    force_pet_image_support(&mut chat);
+    chat.config.tui_pet = Some("codex".to_string());
+    chat.bottom_pane
+        .set_composer_text("/pets next".to_string(), Vec::new(), Vec::new());
+
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    assert_matches!(
+        rx.try_recv(),
+        Ok(AppEvent::PetSelected { pet_id }) if pet_id == "dewey"
+    );
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[tokio::test]
+#[serial]
+async fn slash_pets_prev_cycles_to_previous_pet_in_stable_order() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    force_pet_image_support(&mut chat);
+    chat.config.tui_pet = Some("codex".to_string());
+    chat.bottom_pane
+        .set_composer_text("/pets prev".to_string(), Vec::new(), Vec::new());
+
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+    assert_matches!(
+        rx.try_recv(),
+        Ok(AppEvent::PetSelected { pet_id }) if pet_id == "bsod"
+    );
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+}
+
+#[tokio::test]
+#[serial]
+async fn slash_pets_side_commands_select_placement() {
+    for (argument, expected) in [
+        ("left", codex_config::types::TuiPetSide::FarLeft),
+        ("right", codex_config::types::TuiPetSide::FarRight),
+        ("far-left", codex_config::types::TuiPetSide::FarLeft),
+        ("far-right", codex_config::types::TuiPetSide::FarRight),
+        ("below-left", codex_config::types::TuiPetSide::BelowLeft),
+        ("below-center", codex_config::types::TuiPetSide::BelowCenter),
+        ("below-right", codex_config::types::TuiPetSide::BelowRight),
+        ("above-left", codex_config::types::TuiPetSide::AboveLeft),
+        ("above-center", codex_config::types::TuiPetSide::AboveCenter),
+        ("above-right", codex_config::types::TuiPetSide::AboveRight),
+    ] {
+        let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+        chat.bottom_pane.set_composer_text(
+            format!("/pets side {argument}"),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
+
+        assert_matches!(
+            rx.try_recv(),
+            Ok(AppEvent::PetSideSelected { side }) if side == expected
+        );
+        assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
+    }
 }
 
 #[tokio::test]
@@ -2470,26 +2566,18 @@ async fn slash_pet_hide_disables_pets_even_on_unsupported_terminal() {
 
 #[tokio::test]
 #[serial]
-async fn slash_pets_on_unsupported_terminal_warns_without_picker() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+async fn slash_pets_in_tmux_opens_picker_for_ansi_fallback() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     force_tmux_pet_image_unsupported(&mut chat);
 
     chat.dispatch_command(SlashCommand::Pets);
 
-    assert!(!chat.bottom_pane.has_active_view());
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|lines| lines_to_single_string(lines))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(rendered.contains("Pets are disabled in tmux."));
-    assert!(rendered.contains("outside tmux"));
+    assert!(chat.bottom_pane.has_active_view());
 }
 
 #[tokio::test]
 #[serial]
-async fn slash_pets_with_arg_on_unsupported_terminal_warns_without_selection() {
+async fn slash_pets_with_arg_in_tmux_selects_builtin_for_ansi_fallback() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     force_tmux_pet_image_unsupported(&mut chat);
 
@@ -2497,56 +2585,45 @@ async fn slash_pets_with_arg_on_unsupported_terminal_warns_without_selection() {
         .set_composer_text("/pets chefito".to_string(), Vec::new(), Vec::new());
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|lines| lines_to_single_string(lines))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(rendered.contains("Pets are disabled in tmux."));
-    assert_matches!(rx.try_recv(), Err(TryRecvError::Empty));
+    assert_matches!(
+        rx.try_recv(),
+        Ok(AppEvent::PetSelected { pet_id }) if pet_id == "chefito"
+    );
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[tokio::test]
 #[serial]
-async fn slash_pets_on_unsupported_terminal_shows_terminal_warning() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    force_terminal_pet_image_unsupported(&mut chat);
+async fn slash_pets_on_unsupported_terminal_opens_when_ansi_avatar_exists() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    force_tmux_pet_image_unsupported(&mut chat);
+    write_ansi_avatar(&chat, "clanker");
 
     chat.dispatch_command(SlashCommand::Pets);
 
-    assert!(!chat.bottom_pane.has_active_view());
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|lines| lines_to_single_string(lines))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(rendered.contains("Pets aren’t available in this terminal."));
-    assert!(rendered.contains("Kitty graphics or Sixel support"));
+    assert!(chat.bottom_pane.has_active_view());
 }
 
 #[tokio::test]
 #[serial]
-async fn slash_pets_on_old_iterm2_shows_upgrade_warning() {
-    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    force_old_iterm2_pet_image_unsupported(&mut chat);
+async fn slash_pets_selects_ansi_avatar_without_image_protocol_support() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    force_tmux_pet_image_unsupported(&mut chat);
+    write_ansi_avatar(&chat, "clanker");
+    chat.bottom_pane
+        .set_composer_text("/pets custom:clanker".to_string(), Vec::new(), Vec::new());
 
-    chat.dispatch_command(SlashCommand::Pets);
+    chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
-    assert!(!chat.bottom_pane.has_active_view());
-    let cells = drain_insert_history(&mut rx);
-    let rendered = cells
-        .iter()
-        .map(|lines| lines_to_single_string(lines))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(rendered.contains("Pets require iTerm2 3.6 or newer."));
-    assert!(rendered.contains("Upgrade iTerm2 to use terminal pets."));
+    assert_matches!(
+        rx.try_recv(),
+        Ok(AppEvent::PetSelected { pet_id }) if pet_id == "custom:clanker"
+    );
+    assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
 }
 
 #[tokio::test]
+#[serial]
 async fn slash_fork_requests_current_fork() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

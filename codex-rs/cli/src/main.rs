@@ -88,20 +88,22 @@ use codex_protocol::protocol::AskForApproval;
 use codex_protocol::user_input::UserInput;
 use codex_terminal_detection::TerminalName;
 
-/// Codex CLI
+const CLI_DISPLAY_NAME: &str = codex_config::CLANKER_PRODUCT_NAME;
+const CLI_VERSION: &str = codex_config::CLANKER_VERSION;
+
+/// Clanker Code CLI
 ///
 /// If no subcommand is specified, options will be forwarded to the interactive CLI.
 #[derive(Debug, Parser)]
 #[clap(
+    display_name = CLI_DISPLAY_NAME,
     author,
-    version,
+    version = CLI_VERSION,
     // If a sub‑command is given, ignore requirements of the default args.
     subcommand_negates_reqs = true,
-    // The executable is sometimes invoked via a platform‑specific name like
-    // `codex-x86_64-unknown-linux-musl`, but the help output should always use
-    // the generic `codex` command name that users run.
-    bin_name = "codex",
-    override_usage = "codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]"
+    // Keep each installed command name stable even when its executable has a
+    // platform-specific filename.
+    bin_name = env!("CARGO_BIN_NAME")
 )]
 struct MultitoolCli {
     #[clap(flatten)]
@@ -160,7 +162,7 @@ enum Subcommand {
     /// Update Codex to the latest version.
     Update,
 
-    /// Diagnose local Codex installation, config, auth, and runtime health.
+    /// Diagnose local Clanker Code installation, config, auth, and runtime health.
     Doctor(DoctorCommand),
 
     /// Run commands within a Codex-provided sandbox.

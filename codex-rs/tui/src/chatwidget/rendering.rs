@@ -4,11 +4,13 @@ use super::*;
 
 impl ChatWidget {
     pub(super) fn as_renderable(&self) -> RenderableItem<'_> {
-        let active_cell_right_reserve = self.ambient_pet_wrap_reserved_cols();
+        let (active_cell_left_reserve, active_cell_right_reserve) =
+            self.ambient_pet_horizontal_reserves();
         let active_cell_renderable = match &self.transcript.active_cell {
             Some(cell) => RenderableItem::Owned(Box::new(TranscriptAreaRenderable {
                 child: cell.as_ref(),
                 top: 1,
+                left: active_cell_left_reserve,
                 right: active_cell_right_reserve,
             })),
             None => RenderableItem::Owned(Box::new(())),
@@ -18,6 +20,7 @@ impl ChatWidget {
                 RenderableItem::Owned(Box::new(TranscriptAreaRenderable {
                     child: cell,
                     top: 1,
+                    left: active_cell_left_reserve,
                     right: active_cell_right_reserve,
                 }))
             }
@@ -32,6 +35,7 @@ impl ChatWidget {
                 RenderableItem::Owned(Box::new(TranscriptAreaRenderable {
                     child: cell,
                     top: 1,
+                    left: active_cell_left_reserve,
                     right: active_cell_right_reserve,
                 })),
             );
@@ -42,54 +46,127 @@ impl ChatWidget {
                 RenderableItem::Owned(Box::new(TranscriptAreaRenderable {
                     child: cell,
                     top: 1,
+                    left: active_cell_left_reserve,
                     right: active_cell_right_reserve,
                 })),
             );
         }
         flex.push(
             /*flex*/ 0,
+            RenderableItem::Owned(Box::new(AmbientPetBandRenderable {
+                chat_widget: self,
+                position: AmbientPetBandPosition::Above,
+            })),
+        );
+        flex.push(
+            /*flex*/ 0,
             RenderableItem::Owned(Box::new(BottomPaneComposerReserveRenderable {
                 bottom_pane: &self.bottom_pane,
+                left_reserve: active_cell_left_reserve,
                 right_reserve: active_cell_right_reserve,
             }))
             .inset(Insets::tlbr(
                 /*top*/ 1, /*left*/ 0, /*bottom*/ 0, /*right*/ 0,
             )),
         );
+        flex.push(
+            /*flex*/ 0,
+            RenderableItem::Owned(Box::new(AmbientPetBandRenderable {
+                chat_widget: self,
+                position: AmbientPetBandPosition::Below,
+            })),
+        );
         RenderableItem::Owned(Box::new(flex))
+    }
+}
+
+struct AmbientPetBandRenderable<'a> {
+    chat_widget: &'a ChatWidget,
+    position: AmbientPetBandPosition,
+}
+
+#[derive(Clone, Copy)]
+enum AmbientPetBandPosition {
+    Above,
+    Below,
+}
+
+impl Renderable for AmbientPetBandRenderable<'_> {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let placement = self.chat_widget.effective_ambient_pet_side();
+        if self.matches(placement) {
+            self.chat_widget
+                .render_ambient_pet_band(placement, area, buf);
+        }
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        let placement = self.chat_widget.effective_ambient_pet_side();
+        if self.matches(placement) {
+            self.chat_widget.ambient_pet_band_height(placement)
+        } else {
+            0
+        }
+    }
+}
+
+impl AmbientPetBandRenderable<'_> {
+    fn matches(&self, placement: codex_config::types::TuiPetSide) -> bool {
+        match self.position {
+            AmbientPetBandPosition::Above => placement.is_above(),
+            AmbientPetBandPosition::Below => placement.is_below(),
+        }
     }
 }
 
 struct BottomPaneComposerReserveRenderable<'a> {
     bottom_pane: &'a BottomPane,
+    left_reserve: u16,
     right_reserve: u16,
 }
 
 impl Renderable for BottomPaneComposerReserveRenderable<'_> {
     fn render(&self, area: Rect, buf: &mut Buffer) {
-        self.bottom_pane
-            .render_with_composer_right_reserve(area, buf, self.right_reserve);
+        self.bottom_pane.render_with_composer_right_reserve(
+            self.content_area(area),
+            buf,
+            self.right_reserve,
+        );
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        self.bottom_pane
-            .desired_height_with_composer_right_reserve(width, self.right_reserve)
+        self.bottom_pane.desired_height_with_composer_right_reserve(
+            width.saturating_sub(self.left_reserve),
+            self.right_reserve,
+        )
     }
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {
         self.bottom_pane
-            .cursor_pos_with_composer_right_reserve(area, self.right_reserve)
+            .cursor_pos_with_composer_right_reserve(self.content_area(area), self.right_reserve)
     }
 
     fn cursor_style(&self, area: Rect) -> crossterm::cursor::SetCursorStyle {
         self.bottom_pane
-            .cursor_style_with_composer_right_reserve(area, self.right_reserve)
+            .cursor_style_with_composer_right_reserve(self.content_area(area), self.right_reserve)
+    }
+}
+
+impl BottomPaneComposerReserveRenderable<'_> {
+    fn content_area(&self, area: Rect) -> Rect {
+        Rect::new(
+            area.x.saturating_add(self.left_reserve),
+            area.y,
+            area.width.saturating_sub(self.left_reserve),
+            area.height,
+        )
     }
 }
 
 struct TranscriptAreaRenderable<'a> {
     child: &'a dyn HistoryCell,
     top: u16,
+    left: u16,
     right: u16,
 }
 
@@ -111,7 +188,10 @@ impl Renderable for TranscriptAreaRenderable<'_> {
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        let child_width = width.saturating_sub(self.right).max(1);
+        let child_width = width
+            .saturating_sub(self.left)
+            .saturating_sub(self.right)
+            .max(1);
         HistoryCell::desired_height(self.child, child_width) + self.top
     }
 }
@@ -121,9 +201,12 @@ impl TranscriptAreaRenderable<'_> {
         let y = area.y.saturating_add(self.top);
         let height = area.height.saturating_sub(self.top);
         Rect::new(
-            area.x,
+            area.x.saturating_add(self.left),
             y,
-            area.width.saturating_sub(self.right).max(1),
+            area.width
+                .saturating_sub(self.left)
+                .saturating_sub(self.right)
+                .max(1),
             height,
         )
     }
@@ -132,11 +215,15 @@ impl TranscriptAreaRenderable<'_> {
 impl Renderable for ChatWidget {
     fn render(&self, area: Rect, buf: &mut Buffer) {
         self.as_renderable().render(area, buf);
+        self.render_ambient_pet_ansi(area, buf);
+        self.render_pet_picker_preview_ansi(buf);
         self.last_rendered_width.set(Some(area.width as usize));
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        self.as_renderable().desired_height(width)
+        self.as_renderable()
+            .desired_height(width)
+            .max(self.ambient_pet_min_height())
     }
 
     fn cursor_pos(&self, area: Rect) -> Option<(u16, u16)> {

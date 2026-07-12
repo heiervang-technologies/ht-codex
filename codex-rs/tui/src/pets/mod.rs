@@ -16,6 +16,7 @@
 use std::io::Write;
 
 mod ambient;
+mod ansi_half_block;
 mod asset_pack;
 mod catalog;
 mod frames;
@@ -24,6 +25,7 @@ mod model;
 mod picker;
 mod preview;
 mod sixel;
+mod talking_signal;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -33,22 +35,62 @@ pub(crate) use ambient::AmbientPetDraw;
 pub(crate) use ambient::PetNotificationKind;
 #[cfg(test)]
 pub(crate) use ambient::test_ambient_pet;
+#[cfg(test)]
+pub(crate) use ambient::test_ansi_ambient_pet;
 pub(crate) use asset_pack::builtin_spritesheet_path;
+#[cfg(not(test))]
+pub(crate) use asset_pack::ensure_clanker_default;
 #[cfg(test)]
 pub(crate) use asset_pack::write_test_pack;
 #[cfg(test)]
 pub(crate) use image_protocol::ImageProtocol;
+#[cfg(test)]
 pub(crate) use image_protocol::PetImageSupport;
 #[cfg(test)]
 pub(crate) use image_protocol::PetImageUnsupportedReason;
-#[cfg(not(test))]
-pub(crate) use image_protocol::detect_pet_image_support;
 pub(crate) use picker::PET_PICKER_VIEW_ID;
+pub(crate) use picker::PetCycleDirection;
+pub(crate) use picker::adjacent_pet_selector;
 pub(crate) use picker::build_pet_picker_params;
 pub(crate) use preview::PetPickerPreviewState;
+pub(crate) use talking_signal::TalkingSignal;
 
 pub(crate) const DEFAULT_PET_ID: &str = "codex";
+#[cfg(not(test))]
+pub(crate) const CLANKER_DEFAULT_PET_ID: &str = "custom:clanker";
 pub(crate) const DISABLED_PET_ID: &str = "disabled";
+
+pub(crate) fn load_with_clanker_fallback(
+    pet_id: &str,
+    codex_home: &std::path::Path,
+    frame_requester: crate::tui::FrameRequester,
+    animations_enabled: bool,
+) -> Result<AmbientPet> {
+    #[cfg(not(test))]
+    let fallback_frame_requester = frame_requester.clone();
+    let pet = AmbientPet::load(
+        Some(pet_id),
+        codex_home,
+        frame_requester,
+        animations_enabled,
+    )?;
+    #[cfg(test)]
+    return Ok(pet);
+
+    #[cfg(not(test))]
+    {
+        if pet.visual_enabled() || catalog::builtin_pet(pet_id).is_none() {
+            return Ok(pet);
+        }
+        ensure_clanker_default(codex_home)?;
+        AmbientPet::load(
+            Some(CLANKER_DEFAULT_PET_ID),
+            codex_home,
+            fallback_frame_requester,
+            animations_enabled,
+        )
+    }
+}
 
 /// Ensure that a selected built-in pet has a locally cached spritesheet.
 ///

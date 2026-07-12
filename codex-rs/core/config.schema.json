@@ -1638,6 +1638,10 @@
           "description": "Base URL for the provider's OpenAI-compatible API.",
           "type": "string"
         },
+        "developer_role_name": {
+          "description": "Override the role name used for developer-context messages in the `input` array. When set, every `ResponseItem::Message` whose role is `\"developer\"` will be rewritten to this value before the request is sent to the provider.\n\nThis is useful for providers that do not recognise the OpenAI `\"developer\"` role and expect `\"system\"` instead (e.g. many OpenAI-compatible third-party or OSS providers).\n\nDefault (`None`) keeps the role as `\"developer\"`.",
+          "type": "string"
+        },
         "env_http_headers": {
           "additionalProperties": {
             "type": "string"
@@ -3233,6 +3237,15 @@
           "default": "composer",
           "description": "Where the terminal pet should anchor vertically.\n\nDefaults to `composer`, which follows the current TUI composer viewport."
         },
+        "pet_side": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/TuiPetSide"
+            }
+          ],
+          "default": "far-right",
+          "description": "Placement used for the terminal pet.\n\nDefaults to `far-right`. Non-edge placements currently apply to ANSI pets."
+        },
         "raw_output_mode": {
           "default": false,
           "description": "Start the TUI in raw scrollback mode for copy-friendly transcript output. Defaults to `false`.",
@@ -4076,6 +4089,66 @@
           "description": "Anchor the pet to the physical bottom of the terminal screen.",
           "enum": [
             "screen-bottom"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "TuiPetSide": {
+      "oneOf": [
+        {
+          "description": "Render ANSI pets along the left edge of the composer and transcript.",
+          "enum": [
+            "far-left"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render pets along the right edge of the composer and transcript.",
+          "enum": [
+            "far-right"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render ANSI pets below the composer, aligned left.",
+          "enum": [
+            "below-left"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render ANSI pets below the composer, centered.",
+          "enum": [
+            "below-center"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render ANSI pets below the composer, aligned right.",
+          "enum": [
+            "below-right"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render ANSI pets above the composer, aligned left.",
+          "enum": [
+            "above-left"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render ANSI pets above the composer, centered.",
+          "enum": [
+            "above-center"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Render ANSI pets above the composer, aligned right.",
+          "enum": [
+            "above-right"
           ],
           "type": "string"
         }

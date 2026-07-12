@@ -64,6 +64,7 @@ use codex_config::types::Tui;
 use codex_config::types::TuiKeymap;
 use codex_config::types::TuiNotificationSettings;
 use codex_config::types::TuiPetAnchor;
+use codex_config::types::TuiPetSide;
 use codex_config::types::WindowsSandboxModeToml;
 use codex_config::types::WindowsToml;
 use codex_core_plugins::PluginsManager;
@@ -829,6 +830,7 @@ fn config_toml_deserializes_model_availability_nux() {
             theme: None,
             pet: None,
             pet_anchor: TuiPetAnchor::Composer,
+            pet_side: TuiPetSide::FarRight,
             session_picker_view: None,
             keymap: TuiKeymap::default(),
             model_availability_nux: ModelAvailabilityNuxConfig {
@@ -3644,6 +3646,75 @@ pet_anchor = "bottom"
 }
 
 #[test]
+fn tui_pet_side_deserializes_placements_and_legacy_aliases() {
+    let parse = |value: &str| {
+        toml::from_str::<ConfigToml>(&format!("[tui]\npet_side = \"{value}\""))
+            .expect("pet placement should deserialize")
+            .tui
+            .expect("tui config")
+            .pet_side
+    };
+    let default = toml::from_str::<ConfigToml>(
+        r#"
+[tui]
+"#,
+    )
+    .expect("missing pet side should use its default");
+
+    assert_eq!(
+        (
+            [
+                parse("left"),
+                parse("right"),
+                parse("far-left"),
+                parse("far-right"),
+                parse("below-left"),
+                parse("below-center"),
+                parse("below-right"),
+                parse("above-left"),
+                parse("above-center"),
+                parse("above-right"),
+            ],
+            default.tui.map(|tui| tui.pet_side),
+        ),
+        (
+            [
+                TuiPetSide::FarLeft,
+                TuiPetSide::FarRight,
+                TuiPetSide::FarLeft,
+                TuiPetSide::FarRight,
+                TuiPetSide::BelowLeft,
+                TuiPetSide::BelowCenter,
+                TuiPetSide::BelowRight,
+                TuiPetSide::AboveLeft,
+                TuiPetSide::AboveCenter,
+                TuiPetSide::AboveRight,
+            ],
+            Some(TuiPetSide::FarRight),
+        ),
+    );
+}
+
+#[test]
+fn tui_pet_side_rejects_unknown_value() {
+    let err = toml::from_str::<ConfigToml>(
+        r#"
+[tui]
+pet_side = "center"
+"#,
+    )
+    .expect_err("unknown pet side should fail")
+    .to_string();
+
+    assert!(
+        err.contains("unknown variant `center`")
+            && err.contains("far-left")
+            && err.contains("far-right"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn tui_config_missing_notifications_field_defaults_to_enabled() {
     let cfg = r#"
 [tui]
@@ -3668,6 +3739,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
             theme: None,
             pet: None,
             pet_anchor: TuiPetAnchor::Composer,
+            pet_side: TuiPetSide::FarRight,
             session_picker_view: None,
             keymap: TuiKeymap::default(),
             model_availability_nux: ModelAvailabilityNuxConfig::default(),

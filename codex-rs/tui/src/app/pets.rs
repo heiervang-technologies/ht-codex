@@ -85,8 +85,8 @@ impl App {
         std::mem::drop(tokio::task::spawn_blocking(move || {
             let result = crate::pets::ensure_builtin_pack_for_pet(&pet_id, &codex_home)
                 .and_then(|()| {
-                    crate::pets::AmbientPet::load(
-                        Some(&pet_id),
+                    crate::pets::load_with_clanker_fallback(
+                        &pet_id,
                         &codex_home,
                         frame_requester,
                         animations_enabled,
@@ -116,6 +116,34 @@ impl App {
             Err(err) => {
                 self.chat_widget
                     .add_error_message(format!("Failed to disable pets: {err}"));
+            }
+        }
+    }
+
+    pub(super) async fn handle_pet_side_selected(
+        &mut self,
+        tui: &mut tui::Tui,
+        side: codex_config::types::TuiPetSide,
+    ) {
+        let edit = crate::legacy_core::config::edit::tui_pet_side_edit(side);
+        match ConfigEditsBuilder::new(&self.config.codex_home)
+            .with_edits([edit])
+            .apply()
+            .await
+        {
+            Ok(()) => {
+                self.config.tui_pet_side = side;
+                self.chat_widget.set_tui_pet_side(side);
+                if let Err(err) = self.reflow_transcript_now(tui) {
+                    self.chat_widget.add_error_message(format!(
+                        "Pet side saved, but transcript reflow failed: {err}"
+                    ));
+                }
+                tui.frame_requester().schedule_frame();
+            }
+            Err(err) => {
+                self.chat_widget
+                    .add_error_message(format!("Failed to save pet side: {err}"));
             }
         }
     }
